@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
-class SettingsPage extends StatefulWidget {
+class SettingsPage extends StatelessWidget {
   final bool isDarkMode;
   final Function(bool) toggleDarkMode;
   final MaterialColor currentColor;
@@ -15,91 +16,85 @@ class SettingsPage extends StatefulWidget {
   });
 
   @override
-  State<SettingsPage> createState() => _SettingsPageState();
-}
-
-class _SettingsPageState extends State<SettingsPage> {
-  final List<MaterialColor> availableColors = [
-    Colors.blue,
-    Colors.green,
-    Colors.red,
-    Colors.orange,
-    Colors.purple,
-    Colors.teal,
-  ];
-
-  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings'), centerTitle: true),
+      appBar: AppBar(
+        title: const Text('Settings'),
+        backgroundColor: currentColor,
+        foregroundColor: Colors.white,
+      ),
       body: ListView(
+        padding: const EdgeInsets.all(16),
         children: [
+          const Text(
+            'Appearance',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 10),
+
+          // Dark mode toggle
           SwitchListTile(
             title: const Text('Dark Mode'),
-            value: widget.isDarkMode,
-            onChanged: (value) {
-              widget.toggleDarkMode(value);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    value ? 'Dark Mode Enabled' : 'Light Mode Enabled',
-                  ),
-                  duration: const Duration(seconds: 1),
-                ),
-              );
-            },
+            value: isDarkMode,
+            onChanged: toggleDarkMode,
             secondary: const Icon(Icons.dark_mode),
           ),
-          const Divider(),
 
-          ListTile(
-            leading: const Icon(Icons.palette),
-            title: const Text('Theme Color'),
-            subtitle: Text(widget.currentColor.toString().split('.').last),
-            trailing: DropdownButton<MaterialColor>(
-              value: widget.currentColor,
-              items: availableColors.map((color) {
-                return DropdownMenuItem<MaterialColor>(
-                  value: color,
-                  child: Container(
-                    width: 24,
-                    height: 24,
-                    decoration: BoxDecoration(
-                      color: color,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.black12),
-                    ),
-                  ),
-                );
-              }).toList(),
-              onChanged: (value) {
-                if (value != null) {
-                  widget.changeThemeColor(value);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Theme Color Updated')),
-                  );
-                }
-              },
-            ),
+          const Divider(height: 32),
+
+          const Text(
+            'Theme Color',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 10),
+
+          Wrap(
+            spacing: 10,
+            children: Colors.primaries.map((color) {
+              return GestureDetector(
+                onTap: () => changeThemeColor(color),
+                child: CircleAvatar(
+                  backgroundColor: color,
+                  child: currentColor == color
+                      ? const Icon(Icons.check, color: Colors.white)
+                      : null,
+                ),
+              );
+            }).toList(),
           ),
 
-          const Divider(),
+          const SizedBox(height: 40),
+          const Divider(height: 32),
 
+          // 🔴 Logout button
           ListTile(
-            leading: const Icon(Icons.info_outline),
-            title: const Text('About App'),
-            onTap: () {
-              showAboutDialog(
+            leading: const Icon(Icons.logout, color: Colors.red),
+            title: const Text('Logout'),
+            onTap: () async {
+              final shouldLogout = await showDialog<bool>(
                 context: context,
-                applicationName: 'Weather Mood App',
-                applicationVersion: '1.0.0',
-                applicationIcon: const Icon(Icons.sunny),
-                children: [
-                  const Text(
-                    'Developed by Group 9.\nThis app shows weather-based mood and outfit suggestions with forecasts.',
-                  ),
-                ],
+                builder: (_) => AlertDialog(
+                  title: const Text('Confirm Logout'),
+                  content: const Text('Are you sure you want to log out?'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: const Text('Cancel'),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      child: const Text('Logout'),
+                    ),
+                  ],
+                ),
               );
+
+              if (shouldLogout == true) {
+                await FirebaseAuth.instance.signOut();
+                if (context.mounted) {
+                  Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
+                }
+              }
             },
           ),
         ],
