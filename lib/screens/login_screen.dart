@@ -1,9 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:test1/screens/home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  final bool isDarkMode;
+  final MaterialColor themeColor;
+  final void Function(bool) toggleDarkMode;
+  final void Function(MaterialColor) changeThemeColor;
+
+  const LoginScreen({
+    super.key,
+    required this.isDarkMode,
+    required this.toggleDarkMode,
+    required this.themeColor,
+    required this.changeThemeColor,
+  });
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -14,6 +26,9 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _passwordController = TextEditingController();
   bool showPassword = false;
 
+  static const int maxAttempts = 5;
+  static const Duration cooldownDuration = Duration(hours: 2);
+
   @override
   void dispose() {
     _emailController.dispose();
@@ -21,35 +36,64 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void _login() async {
+  Future<void> _login() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
+    final attemptsRef = FirebaseFirestore.instance.collection('login_attempts').doc(email);
 
     try {
+      final snapshot = await attemptsRef.get();
+      final data = snapshot.data();
+      final now = DateTime.now();
+
+      if (data != null && data['lockedUntil'] != null) {
+        final lockedUntil = (data['lockedUntil'] as Timestamp).toDate();
+        if (lockedUntil.isAfter(now)) {
+          final remaining = lockedUntil.difference(now);
+          _showErrorDialog("Too many failed attempts. Try again in ${remaining.inMinutes} minutes.");
+          return;
+        }
+      }
+
       final userCredential = await FirebaseAuth.instance
           .signInWithEmailAndPassword(email: email, password: password);
-
       final user = userCredential.user;
 
+      await attemptsRef.delete(); // clear attempts on success
+
       if (user != null && !user.emailVerified) {
-        await FirebaseAuth.instance.signOut(); // prevent login
+        await FirebaseAuth.instance.signOut();
         _showVerifyDialog(user);
       } else {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
             builder: (context) => HomeScreen(
-              isDarkMode: false,
-              toggleDarkMode: (value) {},
-              themeColor: Colors.blue,
-              changeThemeColor: (color) {},
-              user: user, // Pass the user object
+              user: user,
+              isDarkMode: widget.isDarkMode,
+              toggleDarkMode: widget.toggleDarkMode,
+              themeColor: widget.themeColor,
+              changeThemeColor: widget.changeThemeColor,
             ),
           ),
         );
       }
     } on FirebaseAuthException catch (e) {
-      _showErrorDialog(e.message ?? "Login failed.");
+      final doc = await attemptsRef.get();
+      final currentAttempts = (doc.data()?['attempts'] ?? 0) + 1;
+      final lockedUntil = currentAttempts >= maxAttempts
+          ? DateTime.now().add(cooldownDuration)
+          : null;
+
+      await attemptsRef.set({
+        'attempts': currentAttempts,
+        'lastAttempt': FieldValue.serverTimestamp(),
+        if (lockedUntil != null) 'lockedUntil': Timestamp.fromDate(lockedUntil),
+      });
+
+      _showErrorDialog(currentAttempts >= maxAttempts
+          ? "Too many failed attempts. Account locked for 2 hours."
+          : "Login failed. Attempt $currentAttempts of $maxAttempts.");
     }
   }
 
@@ -80,29 +124,13 @@ class _LoginScreenState extends State<LoginScreen> {
             onPressed: () async {
               await user.sendEmailVerification();
               Navigator.pop(context);
-              _showSentDialog();
+              _showErrorDialog("Verification email sent.");
             },
             child: const Text("Resend Email"),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text("Cancel"),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showSentDialog() {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text("Email Sent"),
-        content: const Text("A verification email has been sent."),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("OK"),
           ),
         ],
       ),
@@ -127,15 +155,10 @@ class _LoginScreenState extends State<LoginScreen> {
           TextButton(
             onPressed: () async {
               final email = emailResetController.text.trim();
-              Navigator.pop(context); // close the dialog
-
+              Navigator.pop(context);
               try {
-                await FirebaseAuth.instance.sendPasswordResetEmail(
-                  email: email,
-                );
-                _showErrorDialog(
-                  "Password reset email sent. Check your inbox.",
-                );
+                await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+                _showErrorDialog("Password reset email sent. Check your inbox.");
               } on FirebaseAuthException catch (e) {
                 _showErrorDialog(e.message ?? "Failed to send reset email.");
               }
@@ -182,14 +205,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 suffixIcon: IconButton(
-                  icon: Icon(
-                    showPassword ? Icons.visibility_off : Icons.visibility,
-                  ),
-                  onPressed: () {
-                    setState(() {
-                      showPassword = !showPassword;
-                    });
-                  },
+                  icon: Icon(showPassword ? Icons.visibility_off : Icons.visibility),
+                  onPressed: () => setState(() => showPassword = !showPassword),
                 ),
               ),
             ),
@@ -222,15 +239,10 @@ class _LoginScreenState extends State<LoginScreen> {
               children: [
                 const Text("Don't have an account? "),
                 GestureDetector(
-                  onTap: () {
-                    Navigator.pushNamed(context, '/signup');
-                  },
+                  onTap: () => Navigator.pushNamed(context, '/signup'),
                   child: const Text(
                     "Sign Up",
-                    style: TextStyle(
-                      color: Colors.blue,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
                   ),
                 ),
               ],
