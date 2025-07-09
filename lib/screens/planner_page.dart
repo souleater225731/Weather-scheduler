@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:table_calendar/table_calendar.dart';
+import 'package:intl/intl.dart';
+import '../services/schedule_service.dart';
+import '../models/schedule_item.dart';
 
 class PlannerPage extends StatefulWidget {
   const PlannerPage({super.key});
@@ -8,428 +12,228 @@ class PlannerPage extends StatefulWidget {
 }
 
 class _PlannerPageState extends State<PlannerPage> {
-  DateTime selectedDate = DateTime.now();
-  PageController pageController = PageController();
-  
-  final Map<DateTime, List<PlannerEvent>> events = {
-    DateTime(2025, 6, 29): [
-      PlannerEvent('Beach Day', '10:00 AM', 'Sunny ☀️', Colors.orange),
-      PlannerEvent('Picnic', '2:00 PM', 'Perfect weather!', Colors.green),
-    ],
-    DateTime(2025, 6, 30): [
-      PlannerEvent('Indoor Activities', '11:00 AM', 'Cloudy ☁️', Colors.grey),
-    ],
-    DateTime(2025, 7, 1): [
-      PlannerEvent('Umbrella Ready', '9:00 AM', 'Rainy 🌧️', Colors.blue),
-      PlannerEvent('Movie Day', '3:00 PM', 'Stay indoors', Colors.purple),
-    ],
-  };
+  final ScheduleService _service = ScheduleService();
+  List<ScheduleItem> allSchedules = [];
+  List<ScheduleItem> filteredSchedules = [];
+  Map<DateTime, List<ScheduleItem>> _events = {};
+
+  final _titleController = TextEditingController();
+  final _noteController = TextEditingController();
+  String _selectedCategory = 'General';
+  TimeOfDay _selectedTime = TimeOfDay.now();
+
+  DateTime _focusedDay = DateTime.now();
+  DateTime _selectedDay = DateTime.now();
+
+  final List<String> _categories = ['General', 'Work', 'Personal', 'Health'];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSchedules();
+  }
+
+  Future<void> _loadSchedules() async {
+    final items = await _service.fetchSchedules();
+    final events = <DateTime, List<ScheduleItem>>{};
+
+    for (var item in items) {
+      final date = DateTime(item.date.year, item.date.month, item.date.day);
+      events.putIfAbsent(date, () => []).add(item);
+    }
+
+    setState(() {
+      allSchedules = items;
+      _events = events;
+      _filterSchedulesBySelectedDay();
+    });
+  }
+
+  void _filterSchedulesBySelectedDay() {
+    final date = DateTime(_selectedDay.year, _selectedDay.month, _selectedDay.day);
+    setState(() {
+      filteredSchedules = _events[date] ?? [];
+    });
+  }
+
+  Future<void> _addOrEditSchedule({ScheduleItem? existing}) async {
+    if (existing != null) {
+      _titleController.text = existing.title;
+      _noteController.text = existing.note;
+      _selectedCategory = existing.category;
+      _selectedTime = TimeOfDay.fromDateTime(existing.date);
+    }
+
+    await showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        title: Text(existing != null ? 'Edit Schedule' : 'New Schedule'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: _titleController, decoration: const InputDecoration(labelText: 'Title')),
+            TextField(controller: _noteController, decoration: const InputDecoration(labelText: 'Note')),
+            DropdownButton<String>(
+              value: _selectedCategory,
+              onChanged: (val) => setState(() => _selectedCategory = val!),
+              items: _categories.map((cat) => DropdownMenuItem(value: cat, child: Text(cat))).toList(),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final picked = await showTimePicker(context: context, initialTime: _selectedTime);
+                if (picked != null) setState(() => _selectedTime = picked);
+              },
+              child: const Text('Pick Time'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () async {
+              final dateTime = DateTime(
+                _selectedDay.year,
+                _selectedDay.month,
+                _selectedDay.day,
+                _selectedTime.hour,
+                _selectedTime.minute,
+              );
+
+              final item = ScheduleItem(
+                id: existing?.id ?? '',
+                title: _titleController.text.trim(),
+                note: _noteController.text.trim(),
+                date: dateTime,
+                category: _selectedCategory,
+              );
+
+              if (existing == null) {
+                await _service.addSchedule(item);
+              } else {
+                await _service.updateSchedule(item);
+              }
+
+              _titleController.clear();
+              _noteController.clear();
+              _selectedCategory = 'General';
+              _loadSchedules();
+              Navigator.pop(context);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDetailsDialog(ScheduleItem item) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        title: Row(
+          children: [
+            Icon(_getIconForCategory(item.category), color: Colors.blue),
+            const SizedBox(width: 8),
+            Expanded(child: Text(item.title, style: const TextStyle(fontWeight: FontWeight.bold))),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text("📝 ${item.note}"),
+            const SizedBox(height: 10),
+            Text("📅 ${DateFormat('yMMMMd').format(item.date)} at ${DateFormat('jm').format(item.date)}"),
+            const SizedBox(height: 10),
+            Text("🏷 Category: ${item.category}"),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
+          TextButton(onPressed: () => _addOrEditSchedule(existing: item), child: const Text('Edit')),
+          TextButton(
+            onPressed: () async {
+              await _service.deleteSchedule(item);
+              Navigator.pop(context);
+              _loadSchedules();
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  IconData _getIconForCategory(String category) {
+    switch (category) {
+      case 'Work': return Icons.work;
+      case 'Personal': return Icons.person;
+      case 'Health': return Icons.favorite;
+      default: return Icons.event_note;
+    }
+  }
+
+  Widget _buildScheduleCard(ScheduleItem item) {
+    return GestureDetector(
+      onTap: () => _showDetailsDialog(item),
+      child: Card(
+        elevation: 4,
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: ListTile(
+          leading: Icon(_getIconForCategory(item.category), color: Colors.blueAccent),
+          title: Text(item.title, style: const TextStyle(fontWeight: FontWeight.bold)),
+          subtitle: Text(item.note, maxLines: 1, overflow: TextOverflow.ellipsis),
+          trailing: Text(DateFormat('jm').format(item.date), style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color.fromARGB(255, 240, 250, 255),
-      appBar: AppBar(
-        title: const Text('Weather Planner'),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        foregroundColor: Colors.black,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.add),
-            onPressed: _showAddEventDialog,
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Planner'), backgroundColor: Colors.blueAccent),
       body: Column(
         children: [
-          // Calendar Header
-          Container(
-            margin: const EdgeInsets.all(16),
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black12,
-                  blurRadius: 10,
-                  offset: const Offset(0, 2),
-                ),
-              ],
+          TableCalendar(
+            focusedDay: _focusedDay,
+            firstDay: DateTime(2020),
+            lastDay: DateTime(2100),
+            selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
+            onDaySelected: (selected, focused) {
+              setState(() {
+                _selectedDay = selected;
+                _focusedDay = focused;
+                _filterSchedulesBySelectedDay();
+              });
+            },
+            eventLoader: (day) => _events[DateTime(day.year, day.month, day.day)] ?? [],
+            calendarStyle: const CalendarStyle(
+              todayDecoration: BoxDecoration(color: Colors.blue, shape: BoxShape.circle),
+              selectedDecoration: BoxDecoration(color: Colors.blueAccent, shape: BoxShape.circle),
+              markerDecoration: BoxDecoration(color: Colors.blueAccent, shape: BoxShape.circle),
             ),
-            child: Column(
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.chevron_left),
-                      onPressed: () {
-                        setState(() {
-                          selectedDate = DateTime(
-                            selectedDate.year,
-                            selectedDate.month - 1,
-                            selectedDate.day,
-                          );
-                        });
-                      },
-                    ),
-                    Text(
-                      _getMonthYear(selectedDate),
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.chevron_right),
-                      onPressed: () {
-                        setState(() {
-                          selectedDate = DateTime(
-                            selectedDate.year,
-                            selectedDate.month + 1,
-                            selectedDate.day,
-                          );
-                        });
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                _buildCalendarGrid(),
-              ],
-            ),
+            headerStyle: const HeaderStyle(titleCentered: true, formatButtonVisible: false),
           ),
-          
-          // Events List
+          const SizedBox(height: 10),
           Expanded(
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Events for ${_getDateString(selectedDate)}',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: _buildEventsList(),
-                  ),
-                ],
-              ),
-            ),
+            child: filteredSchedules.isEmpty
+              ? const Center(child: Text("No schedules for this day."))
+              : ListView.builder(
+                  itemCount: filteredSchedules.length,
+                  itemBuilder: (context, index) => _buildScheduleCard(filteredSchedules[index]),
+                ),
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildCalendarGrid() {
-    final daysInMonth = DateTime(selectedDate.year, selectedDate.month + 1, 0).day;
-    final firstDayOfMonth = DateTime(selectedDate.year, selectedDate.month, 1);
-    final firstWeekday = firstDayOfMonth.weekday % 7;
-    
-    return Column(
-      children: [
-        // Weekday headers
-        Row(
-          children: ['S', 'M', 'T', 'W', 'T', 'F', 'S']
-              .map((day) => Expanded(
-                    child: Center(
-                      child: Text(
-                        day,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey,
-                        ),
-                      ),
-                    ),
-                  ))
-              .toList(),
-        ),
-        const SizedBox(height: 8),
-        
-        // Calendar days
-        ...List.generate(6, (weekIndex) {
-          return Row(
-            children: List.generate(7, (dayIndex) {
-              final dayNumber = weekIndex * 7 + dayIndex - firstWeekday + 1;
-              
-              if (dayNumber < 1 || dayNumber > daysInMonth) {
-                return const Expanded(child: SizedBox(height: 40));
-              }
-              
-              final date = DateTime(selectedDate.year, selectedDate.month, dayNumber);
-              final isSelected = date.day == selectedDate.day &&
-                  date.month == selectedDate.month &&
-                  date.year == selectedDate.year;
-              final hasEvents = events.containsKey(date);
-              
-              return Expanded(
-                child: GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      selectedDate = date;
-                    });
-                  },
-                  child: Container(
-                    height: 40,
-                    margin: const EdgeInsets.all(2),
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? Colors.blue[500]
-                          : hasEvents
-                              ? Colors.blue[100]
-                              : null,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Center(
-                      child: Text(
-                        dayNumber.toString(),
-                        style: TextStyle(
-                          color: isSelected ? Colors.white : Colors.black,
-                          fontWeight: hasEvents ? FontWeight.bold : FontWeight.normal,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            }),
-          );
-        }),
-      ],
-    );
-  }
-
-  Widget _buildEventsList() {
-    final dayEvents = events[selectedDate] ?? [];
-    
-    if (dayEvents.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(32),
-        child: const Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.event_busy, size: 64, color: Colors.grey),
-              SizedBox(height: 16),
-              Text(
-                'No events planned',
-                style: TextStyle(
-                  fontSize: 18,
-                  color: Colors.grey,
-                ),
-              ),
-              Text(
-                'Tap + to add an event',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-    
-    return ListView.builder(
-      itemCount: dayEvents.length,
-      itemBuilder: (context, index) {
-        final event = dayEvents[index];
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black12,
-                blurRadius: 8,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 4,
-                height: 50,
-                decoration: BoxDecoration(
-                  color: event.color,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      event.title,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      event.time,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      event.weatherNote,
-                      style: const TextStyle(fontSize: 14),
-                    ),
-                  ],
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.delete, color: Colors.red),
-                onPressed: () {
-                  setState(() {
-                    dayEvents.removeAt(index);
-                    if (dayEvents.isEmpty) {
-                      events.remove(selectedDate);
-                    }
-                  });
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  void _showAddEventDialog() {
-    final titleController = TextEditingController();
-    final timeController = TextEditingController();
-    final noteController = TextEditingController();
-    Color selectedColor = Colors.blue;
-
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Add Event'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: titleController,
-                decoration: const InputDecoration(
-                  labelText: 'Event Title',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: timeController,
-                decoration: const InputDecoration(
-                  labelText: 'Time (e.g., 10:00 AM)',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: noteController,
-                decoration: const InputDecoration(
-                  labelText: 'Weather Note',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  const Text('Color: '),
-                  const SizedBox(width: 8),
-                  ...Colors.primaries.take(6).map((color) => GestureDetector(
-                    onTap: () {
-                      setDialogState(() {
-                        selectedColor = color;
-                      });
-                    },
-                    child: Container(
-                      width: 30,
-                      height: 30,
-                      margin: const EdgeInsets.only(right: 8),
-                      decoration: BoxDecoration(
-                        color: color,
-                        shape: BoxShape.circle,
-                        border: selectedColor == color
-                            ? Border.all(color: Colors.black, width: 3)
-                            : null,
-                      ),
-                    ),
-                  )),
-                ],
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                if (titleController.text.isNotEmpty) {
-                  setState(() {
-                    if (!events.containsKey(selectedDate)) {
-                      events[selectedDate] = [];
-                    }
-                    events[selectedDate]!.add(PlannerEvent(
-                      titleController.text,
-                      timeController.text.isEmpty ? 'All Day' : timeController.text,
-                      noteController.text.isEmpty ? 'No weather note' : noteController.text,
-                      selectedColor,
-                    ));
-                  });
-                  Navigator.pop(context);
-                }
-              },
-              child: const Text('Add'),
-            ),
-          ],
-        ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _addOrEditSchedule(),
+        backgroundColor: Colors.blueAccent,
+        child: const Icon(Icons.add),
       ),
     );
   }
-
-  String _getMonthYear(DateTime date) {
-    const months = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'
-    ];
-    return '${months[date.month - 1]} ${date.year}';
-  }
-
-  String _getDateString(DateTime date) {
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-    ];
-    return '${months[date.month - 1]} ${date.day}, ${date.year}';
-  }
-}
-
-class PlannerEvent {
-  final String title;
-  final String time;
-  final String weatherNote;
-  final Color color;
-
-  PlannerEvent(this.title, this.time, this.weatherNote, this.color);
 }
