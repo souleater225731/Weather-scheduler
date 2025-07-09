@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import '../services/weather_service.dart';
-import 'profile_page.dart';
+import 'package:test1/screens/profile_page.dart' as profile;
+import 'package:test1/screens/planner_page.dart' as planner;
 import 'forecast_page.dart';
-import 'planner_page.dart';
 import 'clothing_page.dart';
 import 'moodcast_page.dart';
 import 'settings_page.dart';
-import 'feedback_page.dart'; 
+import 'feedback_page.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -23,7 +23,7 @@ class HomeScreen extends StatefulWidget {
     required this.toggleDarkMode,
     required this.themeColor,
     required this.changeThemeColor,
-    this.user,
+    required this.user,
   });
 
   @override
@@ -81,9 +81,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: widget.isDarkMode
-          ? Colors.grey[900]
-          : const Color(0xFFF0FAFF),
+      backgroundColor: widget.isDarkMode ? Colors.grey[900] : const Color(0xFFF0FAFF),
       body: SafeArea(
         child: isLoading
             ? const Center(child: CircularProgressIndicator())
@@ -92,7 +90,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Top bar - Updated with feedback button
+                    // Top bar
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -101,7 +99,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           onPressed: () => Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => const ProfilePage(),
+                              builder: (context) => const profile.ProfilePage(),
                             ),
                           ),
                         ),
@@ -112,10 +110,9 @@ class _HomeScreenState extends State<HomeScreen> {
                               onPressed: () => Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (context) => const FeedbackPage(),
+                                  builder: (context) => FeedbackPage(user: widget.user),
                                 ),
                               ),
-                              tooltip: 'Feedback',
                             ),
                             IconButton(
                               icon: const Icon(Icons.settings),
@@ -165,10 +162,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const Text(
                       'Hourly Forecast',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 12),
                     SizedBox(
@@ -180,9 +174,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           final item = hourlyForecast[index];
                           final time = DateFormat('ha').format(item['time']);
                           final temp = '${item['temp']}°';
-                          final icon = _getWeatherIcon(
-                            item['condition'].toString(),
-                          );
+                          final icon = _getWeatherIcon(item['condition'].toString());
                           return Container(
                             width: 80,
                             margin: const EdgeInsets.only(right: 12),
@@ -194,17 +186,11 @@ class _HomeScreenState extends State<HomeScreen> {
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Text(
-                                  time,
-                                  style: const TextStyle(fontSize: 14),
-                                ),
+                                Text(time, style: const TextStyle(fontSize: 14)),
                                 const SizedBox(height: 8),
                                 Icon(icon, size: 28, color: Colors.orange),
                                 const SizedBox(height: 8),
-                                Text(
-                                  temp,
-                                  style: const TextStyle(fontSize: 16),
-                                ),
+                                Text(temp, style: const TextStyle(fontSize: 16)),
                               ],
                             ),
                           );
@@ -216,10 +202,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const Text(
                       'Upcoming Weather',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 12),
                     Column(
@@ -246,9 +229,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     Text(
                                       dayName,
                                       style: const TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
-                                      ),
+                                          fontSize: 16, fontWeight: FontWeight.bold),
                                     ),
                                     Text('${day['condition']} • $temp'),
                                   ],
@@ -262,13 +243,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const SizedBox(height: 24),
 
-                    // Navigation Buttons
+                    // Bottom Nav
                     Container(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(16),
-                        boxShadow: [
+                        boxShadow: const [
                           BoxShadow(
                             color: Colors.black12,
                             blurRadius: 10,
@@ -284,9 +265,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             'Forecast',
                             () => Navigator.push(
                               context,
-                              MaterialPageRoute(
-                                builder: (_) => const ForecastPage(),
-                              ),
+                              MaterialPageRoute(builder: (_) => const ForecastPage()),
                             ),
                           ),
                           _navButton(
@@ -294,9 +273,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             'Planner',
                             () => Navigator.push(
                               context,
-                              MaterialPageRoute(
-                                builder: (_) => const PlannerPage(),
-                              ),
+                              MaterialPageRoute(builder: (_) => const planner.PlannerPage()),
                             ),
                           ),
                           _navButton(
@@ -304,9 +281,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             'Clothing',
                             () => Navigator.push(
                               context,
-                              MaterialPageRoute(
-                                builder: (_) => const ClothingPage(),
-                              ),
+                              MaterialPageRoute(builder: (_) => const ClothingPage()),
                             ),
                           ),
                           _navButton(
@@ -314,9 +289,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             'Moodcast',
                             () => Navigator.push(
                               context,
-                              MaterialPageRoute(
-                                builder: (_) => const MoodcastPage(),
-                              ),
+                              MaterialPageRoute(builder: (_) => const MoodcastPage()),
                             ),
                           ),
                         ],
@@ -341,11 +314,11 @@ class _HomeScreenState extends State<HomeScreen> {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(12),
-              boxShadow: [
+              boxShadow: const [
                 BoxShadow(
                   color: Colors.black12,
                   blurRadius: 6,
-                  offset: const Offset(2, 2),
+                  offset: Offset(2, 2),
                 ),
               ],
             ),
